@@ -1,14 +1,15 @@
 "use client";
 
+import { socketManager } from "@/lib/socket";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
   type ReactNode,
 } from "react";
 import type { Socket } from "socket.io-client";
-import { socketManager } from "@/lib/socket";
 import { useAuth } from "./AuthContext";
 
 interface SocketContextType {
@@ -29,7 +30,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  const connect = () => {
+  const connect = useCallback(() => {
     if (!currentUser) return;
 
     const socketInstance = socketManager.connect(currentUser.uid);
@@ -43,13 +44,13 @@ export function SocketProvider({ children }: SocketProviderProps) {
     socketInstance.on("disconnect", () => {
       setIsConnected(false);
     });
-  };
+  }, [currentUser]);
 
-  const disconnect = () => {
+  const disconnect = useCallback(() => {
     socketManager.disconnect();
     setSocket(null);
     setIsConnected(false);
-  };
+  }, []);
 
   // 사용자 로그인 시 자동 연결
   useEffect(() => {
@@ -62,7 +63,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
     return () => {
       disconnect();
     };
-  }, [currentUser]);
+  }, [currentUser, connect, disconnect]);
 
   return (
     <SocketContext.Provider
