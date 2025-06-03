@@ -10,6 +10,18 @@
 !.yarn/releases
 !.yarn/versions
 
+# server dependencies
+/server/node_modules
+/server/.pnp
+/server/.pnp.*
+/server/.yarn/*
+/server/.yarn/patches
+/server/.yarn/plugins
+/server/.yarn/releases
+/server/.yarn/versions
+/server/dist
+/server/.env
+
 # testing
 /coverage
 
@@ -39,3 +51,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# vscode
+.vscode
+
+# Cursor AI specific files
+.cursor/
