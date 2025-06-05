@@ -1,6 +1,6 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
-type TimestampType = Timestamp | FieldValue;
+type TimestampType = Timestamp | FieldValue | Date;
 
 export interface Message {
   id: string;

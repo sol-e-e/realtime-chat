@@ -1,167 +1,232 @@
 import { Server, Socket } from "socket.io";
+import { SOCKET_EVENTS } from "./constants";
+import {
+  getOrCreateChatRoom,
+  saveMessage,
+  updateLastReadAt,
+  updateUserOnlineStatus,
+} from "./firebase-admin";
+import { Message, OnlineUser, User } from "./types";
 
-interface ConnectedUser {
-  userId: string;
-  socketId: string;
-  displayName?: string;
-  email?: string;
-  joinedAt: Date;
-}
-
-interface ChatMessage {
-  id: string;
-  chatId: string;
-  senderId: string;
-  senderName: string;
-  content: string;
-  timestamp: Date;
-}
-
-// TODO: 연결된 사용자들 관리 Firebase Realtime Database에 저장
 // 연결된 사용자들 관리
-const connectedUsers = new Map<string, ConnectedUser>(); // <socketId, ConnectedUser>
-const userSocket = new Map<string, string>(); // <userId, socketId>
+const onlineUsers = new Map<string, OnlineUser>(); // <socketId, OnlineUser>
+const userSockets = new Map<string, string>(); // <userId, socketId>
 
 export function setUpSocketHandlers(io: Server) {
-  io.on("connection", (socket: Socket) => {
+  io.on(SOCKET_EVENTS.CONNECT, (socket: Socket) => {
     console.log(`새로운 클라이언트 연결: ${socket.id}`);
 
     // 사용자 인증 및 등록
     socket.on(
-      "user:resgister",
-      (userData: Pick<ConnectedUser, "userId" | "displayName" | "email">) => {
-        const user: ConnectedUser = {
-          ...userData,
-          socketId: socket.id,
-          joinedAt: new Date(),
-        };
-
-        // 사용자 정보 저장
-        connectedUsers.set(socket.id, user);
-        userSocket.set(userData.userId, socket.id);
-        console.log(
-          `사용자 등록: ${userData.displayName || userData.email} (${
-            userData.userId
-          })`
-        );
-
-        // 사용자에게 등록 완료 알림
-        socket.emit("user:registered", {
-          success: true,
-          user: user,
-          connectedUsersCount: connectedUsers.size,
-        });
-
-        // 다른 사용자들에게 새 사용자 입장 알림
-        socket.broadcast.emit("user:joined", {
-          user: {
+      SOCKET_EVENTS.USER_REGISTER,
+      async (userData: Pick<OnlineUser, "id" | "name" | "email">) => {
+        try {
+          await updateUserOnlineStatus(userData.id, true);
+          const user: OnlineUser = {
             ...userData,
-          },
-          connectedUsersCount: connectedUsers.size,
-        });
+            socketId: socket.id,
+            joinedAt: new Date(),
+          };
+
+          onlineUsers.set(socket.id, user);
+          userSockets.set(userData.id, socket.id);
+          console.log(
+            `사용자 등록: ${userData.name || userData.email} (${userData.id})`
+          );
+
+          socket.emit(SOCKET_EVENTS.USER_REGISTERED, { success: true, user });
+        } catch (error) {
+          console.error("사용자 온라인 상태 업데이트 실패:", error);
+          socket.emit(SOCKET_EVENTS.USER_REGISTER_FAILED, {
+            success: false,
+            error: "사용자 온라인 상태 업데이트 실패",
+          });
+        }
       }
     );
 
     // 채팅방 입장
-    socket.on("chat:join", (chatId: string) => {
-      socket.join(chatId);
-      console.log(`사용자 ${socket.id}가 채팅방 ${chatId}에 밉장`);
+    socket.on(
+      SOCKET_EVENTS.CHAT_START,
+      async (otherUser: Pick<User, "id" | "name" | "email">) => {
+        try {
+          const currentUser = onlineUsers.get(socket.id);
+          if (!currentUser) {
+            socket.emit(SOCKET_EVENTS.CHAT_START_FAILED, {
+              success: false,
+              error: "사용자 정보 없음",
+            });
+            return;
+          }
 
-      socket.emit("chat:joined", { chatId });
-      socket.to(chatId).emit("user:entered-chat", {
-        userId: connectedUsers.get(socket.id)?.userId,
-        chatId,
-      });
-    });
+          // 채팅방 생성 또는 가져오기
+          const chatRoom = await getOrCreateChatRoom(
+            currentUser.id,
+            otherUser.id,
+            { name: currentUser.name, email: currentUser.email },
+            { name: otherUser.name, email: otherUser.email }
+          );
 
-    // 채탕방 나가기
-    socket.on("chat:leave", (chatId: string) => {
-      socket.leave(chatId);
-      console.log(`사용자 ${socket.id}가 채팅방 ${chatId}에서 나감`);
+          if (!chatRoom) {
+            socket.emit(SOCKET_EVENTS.CHAT_START_FAILED, {
+              success: false,
+              error: "채팅방 생성 실패",
+            });
+            return;
+          }
 
-      socket.to(chatId).emit("user:left-chat", {
-        userId: connectedUsers.get(socket.id)?.userId,
-        chatId,
-      });
-    });
+          socket.join(chatRoom.id);
+          socket.emit(SOCKET_EVENTS.CHAT_STARTED, {
+            success: true,
+            chatRoom,
+          });
+
+          const otherSocketId = userSockets.get(otherUser.id);
+          if (otherSocketId) {
+            io.sockets.sockets.get(otherSocketId)?.join(chatRoom.id);
+            io.to(otherSocketId).emit(SOCKET_EVENTS.CHAT_STARTED, {
+              success: true,
+              chatRoom,
+            });
+          }
+
+          console.log(`사용자 ${socket.id}가 채팅방 ${chatRoom.id}에 입장`);
+        } catch (error) {
+          console.error("채팅방 입장 실패:", error);
+        }
+      }
+    );
 
     // 메시지 전송
     socket.on(
-      "message:send",
-      (messageData: Omit<ChatMessage, "id" | "timestamp">) => {
-        const message: ChatMessage = {
-          ...messageData,
-          id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          timestamp: new Date(),
-        };
+      SOCKET_EVENTS.MESSAGE_SEND,
+      async (messageData: Pick<Message, "content" | "chatId">) => {
+        try {
+          const currentUser = onlineUsers.get(socket.id);
+          if (!currentUser) {
+            socket.emit(SOCKET_EVENTS.MESSAGE_SEND_FAILED, {
+              success: false,
+              error: "사용자 정보 없음",
+            });
+            return;
+          }
 
-        console.log(
-          `메시지 전송: ${messageData.senderName} -> ${messageData.chatId}`
-        );
+          const messageId = await saveMessage(messageData.chatId, {
+            content: messageData.content,
+            senderId: currentUser.id,
+            senderName: currentUser.name,
+            senderEmail: currentUser.email,
+          });
 
-        // 채팅방 내 모든 사용자에게 메시지 전송
-        io.to(messageData.chatId).emit("message:received", message);
+          const message: Message = {
+            ...messageData,
+            id: messageId,
+            timestamp: new Date(),
+            senderId: currentUser.id,
+            senderName: currentUser.name,
+            senderEmail: currentUser.email,
+          };
+
+          io.to(messageData.chatId).emit(SOCKET_EVENTS.MESSAGE_RECEIVED, {
+            success: true,
+            message,
+          });
+        } catch (error) {
+          socket.emit(SOCKET_EVENTS.MESSAGE_SEND_FAILED, {
+            success: false,
+            error: "메시지 전송 실패",
+          });
+          console.error("메시지 전송 실패:", error);
+        }
       }
     );
 
     // 타이핑 상태
-    socket.on(
-      "typing:start",
-      (data: { chatId: string; userId: string; userName: string }) => {
-        socket.to(data.chatId).emit("typing:user-started", {
-          ...data,
-        });
-      }
-    );
+    socket.on(SOCKET_EVENTS.TYPING_START, ({ chatId }: { chatId: string }) => {
+      try {
+        const currentUser = onlineUsers.get(socket.id);
+        if (!currentUser) {
+          return;
+        }
 
-    socket.on(
-      "typing:stop",
-      (data: { chatId: string; userId: string; userName: string }) => {
-        socket.to(data.chatId).emit("typing:user-stopped", { ...data });
+        socket.to(chatId).emit(SOCKET_EVENTS.TYPING_START, {
+          userId: currentUser.id,
+          userName: currentUser.name,
+          chatId,
+        });
+      } catch (error) {
+        console.error("타이핑 시작 상태 전송 실패:", error);
       }
-    );
+    });
+
+    socket.on(SOCKET_EVENTS.TYPING_STOP, ({ chatId }: { chatId: string }) => {
+      try {
+        const currentUser = onlineUsers.get(socket.id);
+        if (!currentUser) {
+          return;
+        }
+
+        socket.to(chatId).emit(SOCKET_EVENTS.TYPING_STOP, {
+          userId: currentUser.id,
+          userName: currentUser.name,
+          chatId,
+        });
+      } catch (error) {
+        console.error("타이핑 종료 상태 전송 실패:", error);
+      }
+    });
 
     // 연결 종료
-    socket.on("disconnect", () => {
-      const user = connectedUsers.get(socket.id);
-      if (user) {
-        console.log(`사용자 ${user.userId}가 연결 종료`);
+    socket.on(SOCKET_EVENTS.DISCONNECT, async () => {
+      try {
+        const user = onlineUsers.get(socket.id);
+        if (user) {
+          await updateUserOnlineStatus(user.id, false);
 
-        // 사용자 정보 제거
-        connectedUsers.delete(socket.id);
-        userSocket.delete(user.userId);
-
-        // 다른 사용자들에게 사용자 나감 알림
-        socket.broadcast.emit("user:left", {
-          user: {
-            userId: user.userId,
-            displayName: user.displayName,
-            email: user.email,
-          },
-          connectedUsersCount: connectedUsers.size,
-        });
-      } else {
-        console.log(`사용자 ${socket.id}가 연결 종료 (사용자 정보 없음)`);
+          onlineUsers.delete(socket.id);
+          userSockets.delete(user.id);
+        }
+      } catch (error) {
+        console.error("연결 종료 처리 실패:", error);
       }
     });
 
-    // 연결된 사용자 목록 요청
-    socket.on("users:get-online", () => {
-      const onlineUsers = Array.from(connectedUsers.values()).map((user) => ({
-        userId: user.userId,
-        displayName: user.displayName,
-        email: user.email,
-        joinedAt: user.joinedAt,
-      }));
+    // 읽음처리
+    socket.on(
+      SOCKET_EVENTS.MESSAGE_READ,
+      async ({ chatId }: { chatId: string }) => {
+        try {
+          const currentUser = onlineUsers.get(socket.id);
+          if (!currentUser) {
+            return;
+          }
 
-      socket.emit("users:online-list", onlineUsers);
-    });
+          await updateLastReadAt(chatId, currentUser.id);
+
+          socket.to(chatId).emit(SOCKET_EVENTS.MESSAGE_READ, {
+            userId: currentUser.id,
+            chatId,
+            readAt: new Date(),
+          });
+        } catch (error) {
+          console.error("메시지 읽음 처리 실패:", error);
+          socket.emit(SOCKET_EVENTS.MESSAGE_READ, {
+            success: false,
+            error: "메시지 읽음 처리 실패",
+          });
+        }
+      }
+    );
   });
 
   // 주기적으로 연결 상태 정보 출력
   setInterval(() => {
-    if (connectedUsers.size > 0) {
-      console.log(`현재 연결된 사용자 수: ${connectedUsers.size}`);
+    try {
+      if (onlineUsers.size > 0) {
+        console.log(`현재 연결된 사용자 수: ${onlineUsers.size}`);
+      }
+    } catch (error) {
+      console.error("연결 상태 정보 출력 실패:", error);
     }
   }, 30000);
 }
