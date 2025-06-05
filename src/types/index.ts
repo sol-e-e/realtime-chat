@@ -1,22 +1,21 @@
-import { Timestamp } from "firebase/firestore";
+import { FieldValue, Timestamp } from "firebase/firestore";
 
 export interface Message {
   id: string;
-  text: string;
+  content: string;
   senderId: string;
   senderName: string;
   senderEmail: string;
   chatId: string;
-  timestamp: Timestamp;
-  createdAt: string;
+  timestamp: Timestamp | FieldValue;
 }
 
 export interface User {
   id: string;
   name: string;
   email: string;
+  profileImage?: string;
   isOnline: boolean;
-  lastSeen: Timestamp;
 }
 
 export interface ChatRoom {
@@ -26,14 +25,15 @@ export interface ChatRoom {
     [userId: string]: {
       name: string;
       email: string;
+      lastReadAt?: Timestamp | FieldValue;
     };
   };
-  lastMessage?: {
-    text: string;
-    timestamp: Timestamp;
+  lastMessage: {
+    content: string;
+    timestamp: Timestamp | FieldValue;
     senderId: string;
   };
-  createdAt: Timestamp;
+  createdAt: Timestamp | FieldValue;
 }
 
 export interface OnlineUser {
@@ -41,4 +41,5 @@ export interface OnlineUser {
   name: string;
   email: string;
   socketId: string;
+  joinedAt: Date;
 }

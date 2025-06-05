@@ -17,7 +17,7 @@ class SocketManager {
 
     // Socket.io 서버 연결
     this.socket = io(
-      process.env.NEXT_PUBLIC_SOCKE_URL || "http://localhost:3001",
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001",
       {
         auth: {
           userId,

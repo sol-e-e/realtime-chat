@@ -1,18 +1,16 @@
+import { ChatRoom, Message, User } from "@/types";
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
-  onSnapshot,
+  getDocs,
+  limit,
   orderBy,
   query,
-  setDoc,
-  Timestamp,
-  updateDoc,
+  startAfter,
   where,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { ChatRoom, Message, User } from "@/types/chat";
 
 // collection
 export const messagesCollection = collection(db, "messages");
@@ -20,141 +18,93 @@ export const chatsCollection = collection(db, "chats");
 export const usersCollection = collection(db, "users");
 
 // create chat id
-export function createChatId(userId1: string, userId2: string): string {
-  return [userId1, userId2].sort().join("_");
+export function createChatId(user1Id: string, user2Id: string): string {
+  return [user1Id, user2Id].sort().join("-");
 }
 
-// store message
-export async function saveMessage(
-  chatId: string,
-  message: {
-    text: string;
-    senderId: string;
-    senderName: string;
-    senderEmail: string;
-  }
-) {
+// get chat room
+export async function getChatRoom(chatId: string) {
   try {
-    const messageData = {
-      ...message,
-      chatId,
-      timestamp: Timestamp.now(),
-      createdAt: new Date().toISOString(),
-    };
-
-    const docRef = await addDoc(messagesCollection, messageData);
-
-    // update last message
-    await updateChatLastMessage(chatId, {
-      text: message.text,
-      timestamp: Timestamp.now(),
-      senderId: message.senderId,
-    });
-
-    return { id: docRef.id, ...messageData };
+    const chatRef = doc(chatsCollection, chatId);
+    const chatSnap = await getDoc(chatRef);
+    return chatSnap.exists() ? { id: chatSnap.id, ...chatSnap.data() } : null;
   } catch (error) {
-    console.error("메시지 저장 실패:", error);
+    console.error("채팅방 조회 실패:", error);
     throw error;
   }
 }
 
-// create or get chat
-export async function createOrGetChat(
-  userId1: string,
-  userId2: string,
-  user1Data: Pick<User, "name" | "email">,
-  user2Data: Pick<User, "name" | "email">
-) {
-  const chatId = createChatId(userId1, userId2);
-  const chatRef = doc(chatsCollection, chatId);
-
-  // if chat existed
-  const chatSnap = await getDoc(chatRef);
-
-  if (!chatSnap.exists()) {
-    // create chat
-    const chatData: Omit<ChatRoom, "id"> = {
-      participants: [userId1, userId2],
-      participantsData: {
-        [userId1]: {
-          name: user1Data.name,
-          email: user1Data.email,
-        },
-        [userId2]: {
-          name: user2Data.name,
-          email: user2Data.email,
-        },
-      },
-      createdAt: Timestamp.now(),
-    };
-
-    await setDoc(chatRef, chatData);
-  }
-
-  return chatId;
-}
-
-// subscribe messages
-export function subscribeToMessages(
-  chatId: string,
-  callback: (messages: Message[]) => void
-) {
-  const q = query(
-    messagesCollection,
-    where("chatId", "==", chatId),
-    orderBy("timestamp", "asc")
-  );
-
-  return onSnapshot(q, (snapshot) => {
-    const messages = snapshot.docs.map((doc) => ({
+// get user chat rooms
+export async function getUserChatRooms(userId: string) {
+  try {
+    const q = query(
+      chatsCollection,
+      where("participants", "array-contains", userId),
+      orderBy("lastMessage.timestamp", "desc")
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-    })) as Message[];
-
-    callback(messages);
-  });
-}
-
-async function updateChatLastMessage(
-  chatId: string,
-  lastMessage: {
-    text: string;
-    timestamp: Timestamp;
-    senderId: string;
+    })) as ChatRoom[];
+  } catch (error) {
+    console.error("사용자 채팅방 목록 조회 실패:", error);
+    throw error;
   }
-) {
-  const chatRef = doc(chatsCollection, chatId);
-  await updateDoc(chatRef, { lastMessage });
 }
 
-// save or update user
-export async function saveOrUpdateUser(
-  user: Pick<User, "id" | "name" | "email">
-) {
-  const userRef = doc(usersCollection, user.id);
-  await setDoc(
-    userRef,
-    {
-      ...user,
-      isOnline: true,
-      lastSeen: Timestamp.now(),
-    },
-    { merge: true }
-  );
-}
-
-// update user online status
-export async function updateUserOnlineStatus(
-  userId: string,
-  isOnline: boolean
+// get messages
+export async function getMessages(
+  chatId: string,
+  lastMessageId?: Message | null,
+  pageSize: number = 20
 ) {
   try {
-    const userRef = doc(usersCollection, userId);
-    await updateDoc(userRef, {
-      isOnline,
-      lastSeen: Timestamp.now(),
-    });
+    let q = query(
+      messagesCollection,
+      where("chatId", "==", chatId),
+      orderBy("timestamp", "asc"),
+      limit(pageSize)
+    );
+
+    if (lastMessageId) {
+      q = query(q, startAfter(lastMessageId.timestamp));
+    }
+
+    const snapshot = await getDocs(q);
+
+    return {
+      messages: snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Message[],
+      lastMessageId: snapshot.docs[snapshot.docs.length - 1] || null,
+      hasMore: snapshot.docs.length === pageSize,
+    };
   } catch (error) {
-    console.error("온라인 상태 업데이트 실패:", error);
+    console.error("메시지 조회 실패:", error);
+    throw error;
+  }
+}
+
+// get user by id
+export async function getUserById(userId: string) {
+  const userRef = doc(usersCollection, userId);
+  const userSnap = await getDoc(userRef);
+  return userSnap.exists() ? { id: userSnap.id, ...userSnap.data() } : null;
+}
+
+// get users
+export async function getUsers() {
+  try {
+    const q = query(usersCollection, orderBy("name", "asc"));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as User[];
+  } catch (error) {
+    console.error("사용자 목록 조회 실패:", error);
+    throw error;
   }
 }
