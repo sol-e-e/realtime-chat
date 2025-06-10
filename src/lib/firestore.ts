@@ -103,7 +103,7 @@ export async function getUserById(userId: string) {
 // get users
 export async function getUsers() {
   try {
-    const q = query(usersCollection, orderBy("name", "asc"));
+    const q = query(usersCollection, orderBy("name", "asc"), limit(10));
     const snapshot = await getDocs(q);
     return snapshot.docs.map((doc) => ({
       id: doc.id,
