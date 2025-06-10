@@ -22,6 +22,7 @@ export const SOCKET_EVENTS = {
   TYPING_NOTIFY: "typing:notify",
 
   // Error Events
+  CONNECT_ERROR: "connect_error",
   USER_REGISTER_FAILED: "user:register-failed",
   CHAT_START_FAILED: "chat:start-failed",
   MESSAGE_SEND_FAILED: "message:send-failed",

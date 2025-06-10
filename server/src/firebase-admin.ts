@@ -1,6 +1,9 @@
+import dotenv from "dotenv";
 import admin from "firebase-admin";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { ChatRoom, User } from "./types";
+
+dotenv.config({ path: ".env.local" });
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -9,7 +12,6 @@ if (!admin.apps.length) {
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     }),
-    projectId: process.env.FIREBASE_PROJECT_ID,
   });
 }
 
