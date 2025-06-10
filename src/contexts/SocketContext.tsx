@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Socket } from "socket.io-client";
+import { SOCKET_EVENTS } from "../constants/socketEvents";
 import { useAuth } from "./AuthContext";
 
 interface SocketContextType {
@@ -31,20 +32,26 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
 
   const connect = useCallback(() => {
-    if (!currentUser) return;
+    if (socketManager.isConnected()) {
+      return;
+    }
 
-    const socketInstance = socketManager.connect(currentUser.uid);
+    const socketInstance = socketManager.connect();
     setSocket(socketInstance);
 
     // 연결 상태 이벤트
-    socketInstance.on("connect", () => {
+    socketInstance.on(SOCKET_EVENTS.CONNECT, () => {
       setIsConnected(true);
     });
 
-    socketInstance.on("disconnect", () => {
+    socketInstance.on(SOCKET_EVENTS.DISCONNECT, () => {
       setIsConnected(false);
     });
-  }, [currentUser]);
+
+    socketInstance.on(SOCKET_EVENTS.CONNECT_ERROR, (error) => {
+      console.error("Socket 연결 오류:", error);
+    });
+  }, []);
 
   const disconnect = useCallback(() => {
     socketManager.disconnect();
@@ -56,6 +63,20 @@ export function SocketProvider({ children }: SocketProviderProps) {
   useEffect(() => {
     if (currentUser) {
       connect();
+
+      const handleRegisterUser = () => {
+        console.log("사용자 등록 시도");
+        socketManager.registerUser({
+          id: currentUser.uid,
+          name:
+            currentUser.displayName ||
+            currentUser.email?.split("@")[0] ||
+            "Unknown",
+          email: currentUser.email || "",
+        });
+      };
+
+      socketManager.once(SOCKET_EVENTS.USER_REGISTERED, handleRegisterUser);
     } else {
       disconnect();
     }

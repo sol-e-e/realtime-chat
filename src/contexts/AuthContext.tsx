@@ -1,5 +1,15 @@
 "use client";
 
+import { auth } from "@/lib/firebase";
+import { saveOrUpdateUser } from "@/lib/firestore";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  type User,
+} from "firebase/auth";
 import {
   createContext,
   useContext,
@@ -7,16 +17,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  GoogleAuthProvider,
-  signOut,
-  onAuthStateChanged,
-  signInWithPopup,
-  signInWithEmailAndPassword,
-  type User,
-} from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import { saveOrUpdateUser } from "@/lib/firestore";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -59,11 +59,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // store user data on firestore
       if (user) {
-        await saveOrUpdateUser({
-          id: user.uid,
-          name: user.displayName || user.email?.split("@")[0] || "Unknown",
-          email: user.email || "",
-        });
+        try {
+          await saveOrUpdateUser({
+            id: user.uid,
+            name: user.displayName || user.email?.split("@")[0] || "Unknown",
+            email: user.email || "",
+          });
+        } catch (error) {
+          console.error("사용자 정보 저장 실패:", error);
+        }
       }
       setLoading(false);
     });

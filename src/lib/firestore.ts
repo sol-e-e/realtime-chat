@@ -7,6 +7,7 @@ import {
   limit,
   orderBy,
   query,
+  setDoc,
   startAfter,
   where,
 } from "firebase/firestore";
@@ -89,9 +90,14 @@ export async function getMessages(
 
 // get user by id
 export async function getUserById(userId: string) {
-  const userRef = doc(usersCollection, userId);
-  const userSnap = await getDoc(userRef);
-  return userSnap.exists() ? { id: userSnap.id, ...userSnap.data() } : null;
+  try {
+    const userRef = doc(usersCollection, userId);
+    const userSnap = await getDoc(userRef);
+    return userSnap.exists() ? { id: userSnap.id, ...userSnap.data() } : null;
+  } catch (error) {
+    console.error("사용자 조회 실패:", error);
+    throw error;
+  }
 }
 
 // get users
@@ -107,4 +113,10 @@ export async function getUsers() {
     console.error("사용자 목록 조회 실패:", error);
     throw error;
   }
+}
+
+// save user or update user
+export async function saveOrUpdateUser(user: Omit<User, "isOnline">) {
+  const userRef = doc(usersCollection, user.id);
+  await setDoc(userRef, user, { merge: true });
 }
