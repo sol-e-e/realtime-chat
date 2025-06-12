@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import admin from "firebase-admin";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
-import { ChatRoom, User } from "./types";
+import { getFirestore } from "firebase-admin/firestore";
+import { ChatRoom, Message, User } from "./types";
 
 dotenv.config({ path: ".env.local" });
 
@@ -44,7 +44,8 @@ export async function getOrCreateChatRoom(
   user1Id: string,
   user2Id: string,
   user1Data: Pick<User, "name" | "email">,
-  user2Data: Pick<User, "name" | "email">
+  user2Data: Pick<User, "name" | "email">,
+  createdAt: Date
 ) {
   try {
     const chatId = createChatId(user1Id, user2Id);
@@ -69,10 +70,10 @@ export async function getOrCreateChatRoom(
       },
       lastMessage: {
         content: "채팅을 시작해보세요!",
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: createdAt,
         senderId: "system",
       },
-      createdAt: FieldValue.serverTimestamp(),
+      createdAt,
     };
 
     const chatRef = chatsCollection.doc(chatId);
@@ -88,16 +89,13 @@ export async function getOrCreateChatRoom(
 // update chat room last message
 export async function updateChatRoomLastMessage(
   chatId: string,
-  lastMessage: {
-    content: string;
-    senderId: string;
-  }
+  lastMessage: ChatRoom["lastMessage"]
 ) {
   try {
     const chatRef = chatsCollection.doc(chatId);
     await chatRef.update({
       "lastMessage.content": lastMessage.content,
-      "lastMessage.timestamp": FieldValue.serverTimestamp(),
+      "lastMessage.timestamp": lastMessage.timestamp,
       "lastMessage.senderId": lastMessage.senderId,
     });
   } catch (error) {
@@ -107,26 +105,13 @@ export async function updateChatRoomLastMessage(
 }
 
 // save message
-export async function saveMessage(
-  chatId: string,
-  message: {
-    content: string;
-    senderId: string;
-    senderName: string;
-    senderEmail: string;
-  }
-) {
+export async function saveMessage(message: Omit<Message, "id">) {
   try {
-    const messageData = {
-      ...message,
-      chatId,
-      timestamp: FieldValue.serverTimestamp(),
-    };
+    const messageRef = await messagesCollection.add(message);
 
-    const messageRef = await messagesCollection.add(messageData);
-
-    await updateChatRoomLastMessage(chatId, {
+    await updateChatRoomLastMessage(message.chatId, {
       content: message.content,
+      timestamp: message.timestamp,
       senderId: message.senderId,
     });
 
@@ -138,11 +123,15 @@ export async function saveMessage(
 }
 
 // update last read at
-export async function updateLastReadAt(chatId: string, userId: string) {
+export async function updateLastReadAt(
+  chatId: string,
+  userId: string,
+  lastReadAt: Date
+) {
   try {
     const chatRef = chatsCollection.doc(chatId);
     await chatRef.update({
-      [`participantsData.${userId}.lastReadAt`]: FieldValue.serverTimestamp(),
+      [`participantsData.${userId}.lastReadAt`]: lastReadAt,
     });
   } catch (error) {
     console.error("읽은 시간 업데이트 실패:", error);

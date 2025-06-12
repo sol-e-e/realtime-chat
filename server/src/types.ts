@@ -1,7 +1,3 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
-
-type TimestampType = Timestamp | FieldValue | Date;
-
 export interface Message {
   id: string;
   content: string;
@@ -9,7 +5,7 @@ export interface Message {
   senderName: string;
   senderEmail: string;
   chatId: string;
-  timestamp: TimestampType;
+  timestamp: Date;
 }
 
 export interface User {
@@ -27,15 +23,15 @@ export interface ChatRoom {
     [userId: string]: {
       name: string;
       email: string;
-      lastReadAt?: TimestampType;
+      lastReadAt?: Date;
     };
   };
   lastMessage: {
     content: string;
-    timestamp: TimestampType;
+    timestamp: Date;
     senderId: string;
   };
-  createdAt: TimestampType;
+  createdAt: Date;
 }
 
 export interface OnlineUser {

@@ -64,7 +64,8 @@ export function setUpSocketHandlers(io: Server) {
             currentUser.id,
             otherUser.id,
             { name: currentUser.name, email: currentUser.email },
-            { name: otherUser.name, email: otherUser.email }
+            { name: otherUser.name, email: otherUser.email },
+            new Date()
           );
 
           if (!chatRoom) {
@@ -100,7 +101,7 @@ export function setUpSocketHandlers(io: Server) {
     // 메시지 전송
     socket.on(
       SOCKET_EVENTS.MESSAGE_SEND,
-      async (messageData: Pick<Message, "content" | "chatId">) => {
+      async ({ content, chatId }: Pick<Message, "content" | "chatId">) => {
         try {
           const currentUser = onlineUsers.get(socket.id);
           if (!currentUser) {
@@ -111,20 +112,20 @@ export function setUpSocketHandlers(io: Server) {
             return;
           }
 
-          const messageId = await saveMessage(messageData.chatId, {
-            content: messageData.content,
+          const messageData: Omit<Message, "id"> = {
+            chatId,
+            content,
             senderId: currentUser.id,
             senderName: currentUser.name,
             senderEmail: currentUser.email,
-          });
+            timestamp: new Date(),
+          };
+
+          const messageId = await saveMessage(messageData);
 
           const message: Message = {
             ...messageData,
             id: messageId,
-            timestamp: new Date(),
-            senderId: currentUser.id,
-            senderName: currentUser.name,
-            senderEmail: currentUser.email,
           };
 
           io.to(messageData.chatId).emit(SOCKET_EVENTS.MESSAGE_RECEIVED, {
@@ -201,7 +202,7 @@ export function setUpSocketHandlers(io: Server) {
             return;
           }
 
-          await updateLastReadAt(chatId, currentUser.id);
+          await updateLastReadAt(chatId, currentUser.id, new Date());
 
           socket.to(chatId).emit(SOCKET_EVENTS.MESSAGE_READ, {
             userId: currentUser.id,

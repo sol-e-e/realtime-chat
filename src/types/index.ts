@@ -1,5 +1,3 @@
-import { FieldValue, Timestamp } from "firebase/firestore";
-
 export interface Message {
   id: string;
   content: string;
@@ -7,7 +5,7 @@ export interface Message {
   senderName: string;
   senderEmail: string;
   chatId: string;
-  timestamp: Timestamp | FieldValue;
+  timestamp: Date;
 }
 
 export interface User {
@@ -25,15 +23,15 @@ export interface ChatRoom {
     [userId: string]: {
       name: string;
       email: string;
-      lastReadAt?: Timestamp | FieldValue;
+      lastReadAt?: Date;
     };
   };
   lastMessage: {
     content: string;
-    timestamp: Timestamp | FieldValue;
+    timestamp: Date;
     senderId: string;
   };
-  createdAt: Timestamp | FieldValue;
+  createdAt: Date;
 }
 
 export interface OnlineUser {
